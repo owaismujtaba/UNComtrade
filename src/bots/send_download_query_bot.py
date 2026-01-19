@@ -8,7 +8,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.logger import setup_logger
 from automation.browser import BrowserManager
 from automation.login import login
-from automation.navigation import setup_auto_close_popup, navigate_to_download_and_view_results
+from automation.navigation import setup_auto_close_popup, navigate_to_download_and_view_results, ensure_popup_closed
 
 class SendDownloadQueryBot:
     def __init__(self, config):
@@ -30,12 +30,8 @@ class SendDownloadQueryBot:
                 self.logger.error("Login failed. Aborting.")
                 return
 
-            # 3. Navigate to Results
-            if navigate_to_download_and_view_results(page, self.logger):
-                self.logger.info("Successfully navigated to Download and View Results.")
-                self.process_downloads(page)
-            else:
-                self.logger.error("Failed to navigate to Download and View Results.")
+            # 3. Process Downloads
+            self.process_downloads(page)
             
             # Keep browser open if not headless
             if not self.config.get('headless', False):
@@ -48,222 +44,197 @@ class SendDownloadQueryBot:
             self.browser_manager.stop()
 
     def process_downloads(self, page):
-        """Scans the results table and downloads completed queries with modal interaction and pagination."""
-        self.logger.info("Scanning for completed queries to download...")
+        """Scans the results table and clicks the Download2_New image icon."""
+        self.logger.info("📡 Scanning for completed queries to download...")
         
         download_dir = os.path.join(os.getcwd(), 'downloads')
         os.makedirs(download_dir, exist_ok=True)
         
         # Setup Alert Handler (Auto-Accept)
-        page.on("dialog", lambda dialog: dialog.accept())
+        def handle_dialog(dialog):
+            self.logger.info(f"🚨 Browser Alert Detected: '{dialog.message}' -> Clicking OK/Accept")
+            self.last_alert = dialog.message
+            dialog.accept()
+        page.on("dialog", handle_dialog)
 
-        query_name = self.config.get('query_name', 'Auto2007New')
-        
-        processed_ids = set() # Track unique IDs of processed queries
-        self.query_name = self.config.get('query_name', 'Auto2007New')
+        target_query_name = self.config['credentials'].get('query_name', 'Auto2007')
         processed_ids = set()
         current_page_index = 1
         
         while True:
-            # 1. Reset to "Download and View Results" (Page 1 state)
-            self.logger.info(f"--- Starting processing for Page {current_page_index} ---")
+            self.logger.info(f"\n{'='*40}")
+            self.logger.info(f"📄 Processing Results Page {current_page_index}")
+            self.logger.info(f"{'='*40}")
+            
+            # Ensure we are on the results page
             if not navigate_to_download_and_view_results(page, self.logger):
-                self.logger.error("Failed to navigate to results page. Retrying...")
-                page.wait_for_timeout(5000)
-                continue
-            
-            # 2. Navigate to specific Page Index (if needed)
+                self.logger.error("❌ Failed to navigate/reset to results page.")
+                break
+
+            # 1. Handle Pagination Navigation
             if current_page_index > 1:
-                self.logger.info(f"Navigating to page table page {current_page_index}...")
-                # Try to click the specific page number if visible
                 try:
-                    page_link = page.locator(f'.rgNumPart a:text-is("{current_page_index}")')
-                    if page_link.is_visible():
-                        page_link.click()
-                        page.wait_for_load_state('domcontentloaded')
-                        page.wait_for_timeout(3000)
+                    ensure_popup_closed(page, self.logger) # Check before pagination
+                    footer_links = page.locator('tr.grid-footer a')
+                    target_page_link = footer_links.get_by_text(str(current_page_index), exact=True)
+                    
+                    if target_page_link.is_visible():
+                        self.logger.info(f"➡️ Navigating to Page {current_page_index}...")
+                        target_page_link.click()
+                        page.wait_for_load_state('networkidle')
+                        page.wait_for_timeout(2000) 
                     else:
-                        # Fallback: If page number not directly visible, we might need smarter paging
-                        # For now, simplistic approach: Try clicking "Next" enough times or "..."
-                        # Given complexity, we warn
-                         self.logger.warning(f"Page {current_page_index} link not found. Attempting to use Next buttons or ...")
-                         # Note: This simple logic assumes standard pager visibility. 
-                         # A robust implementation would handle "..." iteration.
-                         # For verification, we assume links are present or we stop.
+                        # Fallback: Check for '...' to reveal next set of pages
+                        ellipsis_link = footer_links.get_by_text("...", exact=True).last
+                        if ellipsis_link.is_visible():
+                             self.logger.info(f"🔄 Page {current_page_index} not visible. Clicking '...' to load more pages.")
+                             ellipsis_link.click()
+                             page.wait_for_load_state('networkidle')
+                             page.wait_for_timeout(2000)
+                             
+                             # Re-check for target link after '...' click
+                             if target_page_link.is_visible():
+                                 target_page_link.click()
+                                 page.wait_for_load_state('networkidle')
+                                 page.wait_for_timeout(2000)
+                        else:
+                            self.logger.info(f"⏹️ Page {current_page_index} not found and no '...' link. Stopping pagination.")
+                            break
                 except Exception as e:
-                     self.logger.error(f"Error navigating to page {current_page_index}: {e}")
-                     break
-
-            # 3. Scan current page for ALL targets
-            self.logger.info(f"Scanning Page {current_page_index} for targets...")
-            rows = page.locator('table[id*="grdvQueryList"] tr').all()
-            
-            # Skip header row
-            if len(rows) > 0: rows = rows[1:]
-            
-            targets_on_page = []
-            
-            for row in rows:
-                try:
-                    cols = row.locator('td').all()
-                    if len(cols) < 8: continue
-                    
-                    # Col 0: ID, Col 1: Name, Col 7: Status, Col 9: Date
-                    q_id = cols[0].inner_text().strip()
-                    q_name = cols[1].inner_text().strip()
-                    q_status = cols[7].get_attribute("title") or ""
-                    q_date = cols[9].inner_text().strip()
-                    
-                    unique_key = f"{q_name}_{q_date}" # Still useful for dedup logic if needed
-                    
-                    # Logic: query_name matching AND Completed AND not already processed
-                    if (self.query_name.lower() in q_name.lower() and 
-                        "Completed" in q_status and 
-                        unique_key not in processed_ids):
-                         
-                         targets_on_page.append({
-                             "id": q_id,
-                             "name": q_name,
-                             "unique_key": unique_key
-                         })
-                except: continue
-            
-            self.logger.info(f"Found {len(targets_on_page)} targets on Page {current_page_index}: {[t['id'] for t in targets_on_page]}")
-
-            # 4. If no targets, check if we should continue to next page (Pagination Check)
-            if len(targets_on_page) == 0:
-                # Check if "Next" button exists to determine if we are at the end
-                try:
-                    next_btn = page.locator('.rgPageNext, input[src*="Next"], a:has-text("Next")').first
-                    # If Next button is disabled or not visible, we are done
-                    # Telerik usually hides next button or disables it on last page
-                    if not next_btn.is_visible():
-                         self.logger.info("No more pages detected. Download Scan Complete.")
-                         break
-                    
-                    # If we just skipped a page with no targets, increment and loop
-                    self.logger.info(f"No targets on Page {current_page_index}, checking next page...")
-                    current_page_index += 1
-                    continue
-                except:
-                    self.logger.info("Pagination check failed or end reached.")
+                    self.logger.error(f"❌ Pagination error: {e}")
                     break
 
-            # 5. Process Targets (One by One)
-            for target in targets_on_page:
-                target_id = target["id"]
-                target_key = target["unique_key"]
-                
-                self.logger.info(f"Processing Target ID: {target_id} ({target['name']})")
-                
-                processed_ids.add(target_key)
-                
-                # RE-NAVIGATE to ensure fresh state (User Requirement)
-                # We need to be on the specific page to find the specific ID row again
-                # Only need to re-nav if we aren't already "freshly" there. 
-                # But since download disrupts state, we assume we must reset every time.
-                
-                # Reset to D&V
-                if not navigate_to_download_and_view_results(page, self.logger):
-                     self.logger.error("Failed reset navigation.")
-                     continue
-                
-                # Go to Page N
-                if current_page_index > 1:
-                     try:
-                        page.locator(f'.rgNumPart a:text-is("{current_page_index}")').click()
-                        page.wait_for_load_state('domcontentloaded')
-                        page.wait_for_timeout(3000)
-                     except:
-                        self.logger.error(f"Could not return to Page {current_page_index}")
-                        continue
-                
-                # Find the row by ID
-                # We look for a row where the first cell has the exact text ID
-                # XPath is robust here: //tr[td[1][normalize-space()='ID']]
-                try:
-                    target_row = page.locator(f"//tr[td[1][normalize-space()='{target_id}']]").first
-                    if not target_row.is_visible():
-                        self.logger.warning(f"Row for ID {target_id} not found on Page {current_page_index}. Skipping.")
-                        continue
-                        
-                    # Find Download Button (Col 4 -> Index 4?)
-                    # The dump shows standard grid. Let's search inside row.
-                    download_btn = target_row.locator('input[src*="Download"], input[src*="download"]').first
-                    
-                    if download_btn.count() > 0:
-                        # ... Perform Download Logic (Same as before) ...
-                        self.logger.info(f"Initiating download for ID {target_id}...")
-                        
-                        try:
-                            # Close Qualtrics
-                            page.evaluate("document.querySelectorAll('div[class*=\"QSI\"]').forEach(el => el.remove());")
-                        except: pass
-
-                        try:
-                            download_btn.click(force=True)
-                        except:
-                            download_btn.evaluate("el => el.click()")
-                        
-                        page.wait_for_timeout(5000)
-
-                        # Modal & Transfer
-                        transfer_selector = 'input[id*="btnAll"], input[value=">>"], input[title="Add all"]'
-                        transfer_btn = None
-                        
-                        # Poll Frame
-                        s_time = time.time()
-                        while time.time() - s_time < 45:
-                            for frame in page.frames:
-                                if frame.locator(transfer_selector).count() > 0:
-                                    if frame.locator(transfer_selector).first.is_visible():
-                                        transfer_btn = frame.locator(transfer_selector).first
-                                        break
-                            if transfer_btn: break
-                            page.wait_for_timeout(1000)
-                        
-                        if transfer_btn:
-                            try: transfer_btn.click(force=True)
-                            except: transfer_btn.evaluate("el => el.click()")
-                            page.wait_for_timeout(2000)
-                        
-                        # Final Download
-                        final_selector = 'input[value="Download"], input[value="OK"], input[id*="btnOK"]'
-                        final_btn = None
-                        
-                        s_time = time.time()
-                        while time.time() - s_time < 15:
-                            for frame in page.frames:
-                                if frame.locator(final_selector).count() > 0:
-                                    if frame.locator(final_selector).first.is_visible():
-                                        final_btn = frame.locator(final_selector).first
-                                        break
-                            if final_btn: break
-                            page.wait_for_timeout(500)
-                            
-                        if final_btn:
-                             self.logger.info("Found Final Download button. Clicking...")
-                             # Expect Navigation or Download
-                             try:
-                                with page.expect_download(timeout=5000) as download_info:
-                                     final_btn.click(force=True)
-                                try:
-                                   dl = download_info.value
-                                   dl.save_as(os.path.join(download_dir, dl.suggested_filename))
-                                   self.logger.info(f"Saved: {dl.suggested_filename}")
-                                except: pass
-                             except:
-                                 # Maybe just navigation
-                                 pass
-                             
-                             page.wait_for_timeout(3000)
-                        else:
-                             self.logger.warning("Final download button not found.")
-                             
-                except Exception as e:
-                    self.logger.error(f"Error downloading ID {target_id}: {e}")
-                    continue
+            # 2. Identify target rows on the current page
+            ensure_popup_closed(page, self.logger) # Check before scanning rows
+            grid_selector = '#MainContent_QueryViewControl1_grdvQueryList'
+            row_locator = page.locator(f'{grid_selector} tr[style*="background-color:White"]')
             
-            # 6. Increment Page Index after processing all targets on current page
-            self.logger.info(f"Finished processing Page {current_page_index}. Moving to next page...")
+            row_count = row_locator.count()
+            if row_count == 0:
+                self.logger.info("⚠️ No data rows found on this page.")
+                break
+
+            targets_on_page = []
+            for i in range(row_count):
+                row = row_locator.nth(i)
+                cells = row.locator('td')
+                
+                q_id = cells.nth(0).inner_text().strip()
+                q_name = cells.nth(1).inner_text().strip()
+                q_status = cells.nth(7).locator('input').get_attribute("title") or ""
+                targets_on_page.append({"id": q_id, "name": q_name})
+
+            if not targets_on_page:
+                self.logger.info(f"ℹ️ No pending targets found on Page {current_page_index}.")
+                next_exists = footer_links.get_by_text(str(current_page_index + 1), exact=True).is_visible()
+                if next_exists:
+                    current_page_index += 1
+                    continue
+                break
+
+            # 3. Execute Downloads
+            for target in targets_on_page:
+                self.logger.info(f"🔹 Processing Target: ID {target['id']} ({target['name']})")
+                
+                # Reset Alert State
+                self.last_alert = None
+                
+                ensure_popup_closed(page, self.logger) # Check before download interaction
+                target_row = page.locator(f"//tr[td[1][normalize-space()='{target['id']}']]").first
+                download_icon = target_row.locator('input[src*="Download2_New.gif"]')
+                
+                if download_icon.is_visible():
+                    download_icon.click(force=True)
+                    self.logger.info("   🖱️ Download icon clicked. Monitoring for alerts/modal...")
+                    
+                    # Wait loop that checks for alerts or modal
+                    start_time = time.time()
+                    while time.time() - start_time < 5: 
+                        # Check for blocking popup during wait
+                        ensure_popup_closed(page, self.logger)
+                        
+                        if self.last_alert:
+                            if "Data is not available" in self.last_alert:
+                                self.logger.warning(f"   ⚠️ Skipping ID {target['id']}: Data not available.")
+                                break
+                            if "submitted successfully" in self.last_alert or "check the download request status" in self.last_alert:
+                                self.logger.info(f"   ✅ Job submitted successfully for ID {target['id']}.")
+                                processed_ids.add(target['id'])
+                                break
+                        page.wait_for_timeout(500)
+                    
+                    if self.last_alert:
+                        continue
+
+                    # If no alert, assume modal logic
+                    self.logger.info("   👀 No immediate alert. checking for modal...")
+                    page.wait_for_timeout(2000) 
+
+                    # 4. Handle Modal
+                    select_all_btn_selector = 'input[value=">>"], input[id*="btnAll"]'
+                    confirm_dl_selector = 'input[value="Download"], input[value="OK"]'
+                    
+                    download_triggered = False
+                    
+                    # Remove Qualtrics
+                    try:
+                        page.evaluate("document.querySelectorAll('div[class*=\"QSI\"], div[id*=\"QSI\"]').forEach(el => el.remove());")
+                    except: pass
+
+                    for frame in page.frames:
+                        try:
+                            if not frame.name: pass 
+                        except: continue
+
+                        try:
+                            btn_all = frame.locator(select_all_btn_selector).first
+                            if btn_all.is_visible():
+                                self.logger.info("   📥 Modal found. Clicking 'Select All'...")
+                                ensure_popup_closed(page, self.logger) # Check before clicking Select All
+                                btn_all.click()
+                                page.wait_for_timeout(2000)
+                                # Check alert again after click
+                                if self.last_alert and ("submitted successfully" in self.last_alert or "check the download request status" in self.last_alert):
+                                     self.logger.info(f"   ✅ Job submitted successfully for ID {target['id']} (after Select All).")
+                                     processed_ids.add(target['id'])
+                                     download_triggered = True
+                                     break
+                                
+                                btn_final = frame.locator(confirm_dl_selector).first
+                                if btn_final.is_visible():
+                                    try:
+                                        ensure_popup_closed(page, self.logger) # Check before Final Click
+                                        btn_final.click()
+                                        
+                                        # Monitor for 5s for success alert or file
+                                        dl_start = time.time()
+                                        got_file = False
+                                        while time.time() - dl_start < 5:
+                                            # Check for popup during final wait
+                                            ensure_popup_closed(page, self.logger)
+                                            if self.last_alert and ("submitted successfully" in self.last_alert or "check the download request status" in self.last_alert):
+                                                self.logger.info(f"   ✅ Job submitted successfully for ID {target['id']} (after Final Click).")
+                                                processed_ids.add(target['id'])
+                                                download_triggered = True
+                                                got_file = True 
+                                                break
+                                            page.wait_for_timeout(200)
+                                        
+                                        if got_file: break
+                                        
+                                        download_triggered = True
+                                        break
+                                    except Exception as dl_err:
+                                        self.logger.error(f"   ❌ Error during final download click: {dl_err}")
+                        except Exception:
+                            continue
+                    
+                    if not download_triggered:
+                        self.logger.warning(f"   ⚠️ Could not complete modal sequence for {target['id']}")
+            
+            current_page_index += 1
+
+                # Optional: Re-navigate or refresh if the site breaks after a download
+                # navigate_to_download_and_view_results(page, self.logger)
+
             current_page_index += 1

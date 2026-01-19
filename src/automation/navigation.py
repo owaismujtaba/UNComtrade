@@ -1,5 +1,33 @@
 import logging
 
+def ensure_popup_closed(page, logger):
+    """
+    Manually checks and closes the popup if visible. 
+    Useful to call before critical actions.
+    Checks main page and all frames.
+    """
+    try:
+        # 1. Check Main Page
+        no_thanks = page.get_by_role("button", name="No, thanks.")
+        if no_thanks.is_visible():
+            logger.info("Feedback modal detected (Manual Check)! Clicking 'No, thanks.'...")
+            no_thanks.click()
+            page.wait_for_timeout(500)
+            return
+
+        # 2. Check Frames (if popup might be inside one)
+        for frame in page.frames:
+            try:
+                btn = frame.get_by_role("button", name="No, thanks.")
+                if btn.is_visible():
+                    logger.info(f"Feedback modal detected in frame '{frame.name or frame.url}'! Clicking...")
+                    btn.click()
+                    page.wait_for_timeout(500)
+                    return
+            except: pass
+    except Exception:
+        pass
+
 def setup_auto_close_popup(page, logger):
     """
     Registers a global handler that automatically clicks 'No, thanks.' 
@@ -8,23 +36,30 @@ def setup_auto_close_popup(page, logger):
     logger.info("Setting up global popup handler for World Bank feedback modal.")
     
     # Target the exact button text and punctuation from the screenshot
+    # We use a broad locator strategy to be safe
     no_thanks_locator = page.get_by_role("button", name="No, thanks.")
     
     # Use add_locator_handler to intercept the modal as soon as it appears 
     # and before it blocks subsequent clicks.
-    page.add_locator_handler(no_thanks_locator, lambda: (
-        logger.info("Feedback modal detected! Clicking 'No, thanks.' to resume..."),
-        no_thanks_locator.click()
-    ))
+    try:
+        page.add_locator_handler(no_thanks_locator, lambda: (
+            logger.info("Feedback modal detected (Auto)! Clicking 'No, thanks.' to resume..."),
+            no_thanks_locator.click()
+        ))
+    except Exception as e:
+        logger.warning(f"Failed to register auto-popup handler (might not be supported on this page context): {e}")
 
 def navigate_to_trade_data(page, logger):
     """Navigates to Advanced Query > Trade Data via the top menu."""
     logger.info("Navigating to Advanced Query > Trade Data...")
     
+    ensure_popup_closed(page, logger) # Check before interacting
+    
     advanced_query_menu = page.locator('a.dropdown-toggle:has-text("Advanced Query")').first
     advanced_query_menu.hover()
     page.wait_for_timeout(500)
     
+    ensure_popup_closed(page, logger)
     trade_data_link = page.locator('#TopMenu1_RawTradeData')
     trade_data_link.click()
     
@@ -36,11 +71,14 @@ def navigate_to_download_and_view_results(page, logger):
     logger.info("Navigating to Results > Download and View Results...")
     
     try:
-        results_menu = page.locator('a.dropdown-toggle:has-text("Results")').first
-        results_menu.wait_for(state='visible')
-        results_menu.hover()
-        page.wait_for_timeout(500)
+        ensure_popup_closed(page, logger)
         
+        results_menu = page.locator('a.dropdown-toggle:has-text("Results")').first
+        results_menu.wait_for(state='visible', timeout=10000)
+        results_menu.hover()
+        page.wait_for_timeout(1000)
+        
+        ensure_popup_closed(page, logger)
         download_link = page.locator('#TopMenu1_DownloadandViewResults')
         
         # If not visible after hover, try clicking the menu to expand
@@ -48,7 +86,7 @@ def navigate_to_download_and_view_results(page, logger):
             logger.info("Submenu not visible after hover, clicking 'Results' menu...")
             results_menu.click()
             
-        download_link.wait_for(state='visible', timeout=1000)
+        download_link.wait_for(state='visible', timeout=5000)
         download_link.click()
         
         page.wait_for_load_state('domcontentloaded')
@@ -59,7 +97,10 @@ def navigate_to_download_and_view_results(page, logger):
 
 def select_existing_query(page, query_name, logger):
     """Selects an existing query from the dropdown and clicks Proceed."""
+    ensure_popup_closed(page, logger)
+    
     dropdown = page.locator('#MainContent_cboExistingQuery')
+    dropdown.wait_for(state='visible', timeout=10000)
     dropdown.click()
     
     options = dropdown.locator('option').all()
@@ -72,16 +113,23 @@ def select_existing_query(page, query_name, logger):
             
     if target_value:
         dropdown.select_option(value=target_value)
+        # Dropdown change might trigger postback or loading
         page.wait_for_load_state('networkidle')
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(2000) # Give extra time for any UI updates
         
-        page.click('#MainContent_btnProceed')
+        ensure_popup_closed(page, logger)
+        proceed_btn = page.locator('#MainContent_btnProceed')
+        proceed_btn.wait_for(state='visible', timeout=5000)
+        proceed_btn.click()
+        
         page.wait_for_load_state('networkidle')
         return True
     return False
 
 def click_final_submit(page, logger):
     """Clicks the final Submit button, handling potential Telerik overlays."""
+    ensure_popup_closed(page, logger)
+    
     # Force remove stuck Telerik overlays via JS to ensure the button is clickable.
     page.evaluate("""
         document.querySelectorAll('.TelerikModalOverlay').forEach(el => el.style.display = 'none');
@@ -89,6 +137,7 @@ def click_final_submit(page, logger):
     
     submit_btn = page.locator('#MainContent_btnSaveExecute')
     if submit_btn.is_visible():
+        ensure_popup_closed(page, logger)
         submit_btn.click()
         page.wait_for_load_state('networkidle')
         return True

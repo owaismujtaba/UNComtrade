@@ -73,17 +73,29 @@ class SendQueryBot:
                     
                     success = False
                     try:
+                        # Step 1: Navigation
+                        s_nav = time.time()
                         if not navigate_to_trade_data(page, self.logger):
                              raise Exception("Navigation failed")
+                        self.logger.info(f"Step [Navigation] took: {time.time() - s_nav:.2f}s")
                         
+                        # Step 2: Query Selection
+                        s_sel = time.time()
                         if not select_existing_query(page, creds['query_name'], self.logger):
                              raise Exception("Query selection failed")
-
+                        self.logger.info(f"Step [Query Selection] took: {time.time() - s_sel:.2f}s")
+                        
+                        # Step 3: Reporter Modification
+                        s_mod = time.time()
                         if not handle_reporter_modification(page, creds['query_name'], self.logger, key):
                             raise Exception("Reporter modification failed")
+                        self.logger.info(f"Step [Reporter Modification] took: {time.time() - s_mod:.2f}s")
                         
+                        # Step 4: Final Submit
+                        s_sub = time.time()
                         if not click_final_submit(page, self.logger):
                             raise Exception("Final submit failed")
+                        self.logger.info(f"Step [Final Submit] took: {time.time() - s_sub:.2f}s")
                         
                         success = True
                     except Exception as task_error:
@@ -100,11 +112,15 @@ class SendQueryBot:
                         
                         eta_seconds = avg_time * remaining_count
                         eta_formatted = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
+                        
+                        total_elapsed = time.time() - start_time
+                        total_formatted = f"{int(total_elapsed // 3600)}h {int((total_elapsed % 3600) // 60)}m {int(total_elapsed % 60)}s"
 
                         self.logger.info(f"✅ COMPLETED {key}")
                         self.logger.info(f"   ⏱️  Duration : {country_duration:.2f}s")
                         self.logger.info(f"   📊 Average  : {avg_time:.2f}s")
                         self.logger.info(f"   ⏳ ETA      : {eta_formatted}")
+                        self.logger.info(f"   🕒 Elapsed  : {total_formatted}")
                         self.logger.info(f"{'='*60}\n")
                         del undone_countries[key]
                         

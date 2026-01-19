@@ -1,25 +1,25 @@
 from automation.navigation import setup_auto_close_popup
+from automation.navigation import ensure_popup_closed
 
-def handle_reporter_modification(page, query_name, logger, key):
-    """Locates and clicks the 'Modify' link for Reporters and handles subsequent modals."""
-    if "QueryDefinitionSelection" not in page.url:
-        logger.warning(f"Not on the expected selection page. Current URL: {page.url}")
-        return False
-
-    logger.info(f"Modifying reporter for: {key}")
+def handle_reporter_modification(page, query_name, logger, country_code):
+    """
+    Handles the modification of the Reporter tab to select a specific country.
+    """
+    logger.info(f"Modifying Reporter for country code: {country_code}")
     
-    # The global handler (setup in SendQueryBot) deals with the feedback popup.
-    # However, we must ensure the 'Modify' link is actually clickable.
+    # Check for "Modify" link in the Reporter section
     modify_link = page.locator('#divRptrmodify a')
     
-    # Wait for any potential blocking popups to be cleared by the handler
-    # We check if the 'No, thanks.' button exists; if so, we wait for it to disappear.
-    feedback_popup = page.get_by_role("button", name="No, thanks.")
-    if feedback_popup.is_visible():
-        logger.info("Feedback popup obscuring view. Waiting for auto-handler...")
-        feedback_popup.wait_for(state="hidden", timeout=1000)
+    ensure_popup_closed(page, logger) # Check before interacting
+    
+    try:
+        # Wait for modify link to be visible (max 10s)
+        # This handles cases where the page takes a moment to settle after potential popup closure
+        modify_link.wait_for(state='visible', timeout=10000)
+    except:
+        logger.warning("Modify link wait timed out. proceeding to check visibility...")
 
-    if modify_link.count() > 0 and modify_link.is_visible():
+    if modify_link.is_visible():
         logger.info(f"Clicking 'Modify' for Reporters...")
         
         # Setup dialog handler for the 'Are you sure' alert WITS often throws
@@ -36,6 +36,8 @@ def handle_reporter_modification(page, query_name, logger, key):
         page.wait_for_load_state('networkidle')
         page.wait_for_timeout(1000)
         
+        ensure_popup_closed(page, logger) # Check after modal opens
+
         # Cleanup dialog handler
         page.remove_listener("dialog", handle_dialog)
         
@@ -52,15 +54,19 @@ def handle_reporter_modification(page, query_name, logger, key):
                 iframe = page.frame_locator('iframe[src*="CountryList.aspx"]')
                 
                 logger.info("Clearing existing selections...")
-                iframe.locator('a.clearall').click()
+                clear_btn = iframe.locator('a.clearall, input[value="Clear All"]')
+                if clear_btn.count() > 0:
+                     clear_btn.first.click()
                 page.wait_for_timeout(500)
                 
                 logger.info("Opening ISO3 input area...")
-                iframe.locator('img#Img1').click()
+                img_lookup = iframe.locator('img#Img1, img[title="Find Country"]')
+                if img_lookup.count() > 0:
+                     img_lookup.first.click()
                 page.wait_for_timeout(500)
                 
-                logger.info(f"Entering ISO3: {key}")
-                iframe.locator('textarea#txtCntry').fill(key)
+                logger.info(f"Entering ISO3: {country_code}")
+                iframe.locator('textarea#txtCntry').fill(country_code)
                 iframe.locator('input#btnCntryCode').click()
                 page.wait_for_timeout(1000)
                 
@@ -74,17 +80,21 @@ def handle_reporter_modification(page, query_name, logger, key):
 
             elif "New Query" in title:
                 # Handle query naming modal if required
+                logger.info("New Query modal handling...")
                 for frame in page.frames:
                     target_input = frame.locator('input[type="text"]:enabled:visible').first
                     if target_input.count() > 0:
                         target_input.fill(query_name)
                         save_btn = frame.locator('input[value="Save"], button:has-text("Save")').first
-                        save_btn.click()
-                        break
+                        if save_btn.count() > 0:
+                             save_btn.click()
+                             break
                 page.wait_for_load_state('networkidle')
         
         return True
     else:
         logger.error("Modify link not found or obscured.")
-        page.screenshot(path='modify_link_error.png')
+        try:
+             page.screenshot(path='modify_link_error.png')
+        except: pass
         return False

@@ -31,6 +31,32 @@ def navigate_to_trade_data(page, logger):
     page.wait_for_load_state('networkidle')
     return True
 
+def navigate_to_download_and_view_results(page, logger):
+    """Navigates to Results > Download and View Results via the top menu."""
+    logger.info("Navigating to Results > Download and View Results...")
+    
+    try:
+        results_menu = page.locator('a.dropdown-toggle:has-text("Results")').first
+        results_menu.wait_for(state='visible')
+        results_menu.hover()
+        page.wait_for_timeout(500)
+        
+        download_link = page.locator('#TopMenu1_DownloadandViewResults')
+        
+        # If not visible after hover, try clicking the menu to expand
+        if not download_link.is_visible():
+            logger.info("Submenu not visible after hover, clicking 'Results' menu...")
+            results_menu.click()
+            
+        download_link.wait_for(state='visible', timeout=1000)
+        download_link.click()
+        
+        page.wait_for_load_state('domcontentloaded')
+        return True
+    except Exception as e:
+        logger.error(f"Navigation failed: {e}")
+        return False
+
 def select_existing_query(page, query_name, logger):
     """Selects an existing query from the dropdown and clicks Proceed."""
     dropdown = page.locator('#MainContent_cboExistingQuery')
@@ -47,7 +73,7 @@ def select_existing_query(page, query_name, logger):
     if target_value:
         dropdown.select_option(value=target_value)
         page.wait_for_load_state('networkidle')
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(1000)
         
         page.click('#MainContent_btnProceed')
         page.wait_for_load_state('networkidle')

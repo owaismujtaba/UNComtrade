@@ -17,7 +17,7 @@ def handle_reporter_modification(page, query_name, logger, key):
     feedback_popup = page.get_by_role("button", name="No, thanks.")
     if feedback_popup.is_visible():
         logger.info("Feedback popup obscuring view. Waiting for auto-handler...")
-        feedback_popup.wait_for(state="hidden", timeout=5000)
+        feedback_popup.wait_for(state="hidden", timeout=1000)
 
     if modify_link.count() > 0 and modify_link.is_visible():
         logger.info(f"Clicking 'Modify' for Reporters...")
@@ -34,7 +34,7 @@ def handle_reporter_modification(page, query_name, logger, key):
         
         # Wait for the WITS RadWindow to appear
         page.wait_for_load_state('networkidle')
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(1000)
         
         # Cleanup dialog handler
         page.remove_listener("dialog", handle_dialog)

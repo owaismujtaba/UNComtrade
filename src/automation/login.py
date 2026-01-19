@@ -10,13 +10,14 @@ def login(page, email, password, login_url, logger):
     logger.info("Clicking login...")
     page.click('#btnSubmit')
     
-    # Wait for navigation after login
-    page.wait_for_load_state('networkidle')
+    # Wait for navigation after login (relaxed)
+    page.wait_for_load_state('domcontentloaded')
     
-    # Check if login was successful (e.g., check for Logout link)
-    if page.locator('text=Logout').is_visible():
+    # Check if login was successful (Wait for Logout link)
+    try:
+        page.wait_for_selector('text=Logout', timeout=15000)
         logger.info("Login successful.")
         return True
-    else:
-        logger.error("Login failed or encountered a CAPTCHA.")
+    except:
+        logger.error("Login failed or encountered a CAPTCHA (Logout link not found).")
         return False

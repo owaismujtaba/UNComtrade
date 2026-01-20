@@ -61,7 +61,7 @@ class SendDownloadQueryBot:
         if not success:
             self.logger.warning(f"[PAGE] Normal pagination failed for Page {page_index}. Attempting hard refresh...")
             # Perform a full reload of the results page to clear any corrupted viewstate/ajax issues
-            from ..automation.navigation import navigate_to_download_and_view_results
+            from automation.navigation import navigate_to_download_and_view_results
             if navigate_to_download_and_view_results(page, self.logger):
                 self.logger.info(f"[PAGE] Hard refresh successful. Retrying navigation to Page {page_index} from Page 1...")
                 # Try logic again from a fresh Page 1 state
@@ -220,8 +220,11 @@ class SendDownloadQueryBot:
         self.last_alert = None
         
         ensure_popup_closed(page, self.logger)
-        target_row = page.locator(f"//tr[td[1][normalize-space()='{target['id']}']]").first
-        download_icon = target_row.locator('input[src*="Download2_New.gif"]')
+        # Scope to the specific grid to avoid selecting wrapper rows in nested tables
+        grid_selector = '#MainContent_QueryViewControl1_grdvQueryList'
+        target_row = page.locator(f'{grid_selector} tr').filter(has_text=target['id']).first
+        
+        download_icon = target_row.locator('input[src*="Download"]')
         
         if not download_icon.is_visible():
             self.logger.warning(f"   [WARNING] Download icon not found for ID {target['id']}")

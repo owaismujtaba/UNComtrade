@@ -25,6 +25,7 @@ class SendQueryBot:
         self.browser_manager = BrowserManager(headless=self.config.get('headless', False))
         self.start_time = None
         self.processing_times = []
+        self.count = 3
 
     def save_undone_countries(self, query_name, undone_countries):
         """Saves each undone country as an individual JSON file in a folder."""
@@ -169,8 +170,11 @@ class SendQueryBot:
         stagnant_iters = 0
         iteration = 1
         self.processing_times = [] 
-
+        index = 3
         while undone_countries:
+            if index%3 == 0:
+                time.sleep(3)
+            index += 1
             undone_countries = self._run_iteration(query_name, undone_countries, iteration, total_count)
             
             is_stagnant, last_undone_count, stagnant_iters = self._check_progress(
@@ -200,7 +204,7 @@ class SendQueryBot:
             query_names = [query_names]
         
         self.logger.info(f"Sequential run for queries: {query_names}")
-
+        
         for query_name in query_names:
             if not self.process_query(query_name):
                 self.logger.warning(f"Query {query_name} did not complete fully.")

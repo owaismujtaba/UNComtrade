@@ -12,7 +12,7 @@ def ensure_popup_closed(page, logger):
         if no_thanks.is_visible():
             logger.info("Feedback modal detected (Manual Check)! Clicking 'No, thanks.'...")
             no_thanks.click()
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(100)
             return
 
         # 2. Check Frames (if popup might be inside one)
@@ -22,7 +22,7 @@ def ensure_popup_closed(page, logger):
                 if btn.is_visible():
                     logger.info(f"Feedback modal detected in frame '{frame.name or frame.url}'! Clicking...")
                     btn.click()
-                    page.wait_for_timeout(500)
+                    page.wait_for_timeout(100)
                     return
             except: pass
     except Exception:
@@ -56,12 +56,18 @@ def navigate_to_trade_data(page, logger):
     ensure_popup_closed(page, logger) # Check before interacting
     
     advanced_query_menu = page.locator('a.dropdown-toggle:has-text("Advanced Query")').first
-    advanced_query_menu.hover()
-    page.wait_for_timeout(500)
+    # Reduce timeout to fail fast if overlay/element is stuck (default is 30s)
+    try:
+        advanced_query_menu.hover(timeout=5000) 
+    except:
+        logger.info("Hover timed out. Attempting forceful click on submenu directly...")
+    
+    # advanced_query_menu.hover() - hover usually doesn't trigger network, keeping small wait for UI stability
+    page.wait_for_timeout(200)
     
     ensure_popup_closed(page, logger)
     trade_data_link = page.locator('#TopMenu1_RawTradeData')
-    trade_data_link.click()
+    trade_data_link.click(force=True)
     
     page.wait_for_load_state('networkidle')
     return True
@@ -74,7 +80,7 @@ def navigate_to_download_and_view_results(page, logger):
         ensure_popup_closed(page, logger)
         
         results_menu = page.locator('a.dropdown-toggle:has-text("Results")').first
-        results_menu.wait_for(state='visible', timeout=10000)
+        results_menu.wait_for(state='visible', timeout=5000)
         results_menu.hover()
         page.wait_for_timeout(1000)
         
@@ -89,7 +95,7 @@ def navigate_to_download_and_view_results(page, logger):
         download_link.wait_for(state='visible', timeout=5000)
         download_link.click()
         
-        page.wait_for_load_state('domcontentloaded')
+        page.wait_for_load_state('networkidle')
         return True
     except Exception as e:
         logger.error(f"Navigation failed: {e}")
@@ -100,7 +106,7 @@ def select_existing_query(page, query_name, logger):
     ensure_popup_closed(page, logger)
     
     dropdown = page.locator('#MainContent_cboExistingQuery')
-    dropdown.wait_for(state='visible', timeout=10000)
+    dropdown.wait_for(state='visible', timeout=5000)
     dropdown.click()
     
     options = dropdown.locator('option').all()
@@ -115,7 +121,7 @@ def select_existing_query(page, query_name, logger):
         dropdown.select_option(value=target_value)
         # Dropdown change might trigger postback or loading
         page.wait_for_load_state('networkidle')
-        page.wait_for_timeout(2000) # Give extra time for any UI updates
+        page.wait_for_timeout(500) # Give extra time for any UI updates
         
         ensure_popup_closed(page, logger)
         proceed_btn = page.locator('#MainContent_btnProceed')

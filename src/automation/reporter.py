@@ -15,10 +15,10 @@ def handle_reporter_modification(page, query_name, logger, country_code):
     try:
         # Wait for modify link to be visible (max 10s)
         # This handles cases where the page takes a moment to settle after potential popup closure
-        modify_link.wait_for(state='visible', timeout=10000)
+        modify_link.wait_for(state='visible', timeout=5000)
     except:
         logger.warning("Modify link wait timed out. proceeding to check visibility...")
-
+        return False
     if modify_link.is_visible():
         logger.info(f"Clicking 'Modify' for Reporters...")
         
@@ -34,7 +34,7 @@ def handle_reporter_modification(page, query_name, logger, country_code):
         
         # Wait for the WITS RadWindow to appear
         page.wait_for_load_state('networkidle')
-        page.wait_for_timeout(1000)
+        #page.wait_for_timeout(500)
         
         ensure_popup_closed(page, logger) # Check after modal opens
 
@@ -54,21 +54,26 @@ def handle_reporter_modification(page, query_name, logger, country_code):
                 iframe = page.frame_locator('iframe[src*="CountryList.aspx"]')
                 
                 logger.info("Clearing existing selections...")
-                clear_btn = iframe.locator('a.clearall, input[value="Clear All"]')
-                if clear_btn.count() > 0:
-                     clear_btn.first.click()
-                page.wait_for_timeout(500)
+                try:
+                    iframe.locator('a.clearall, input[value="Clear All"]').click()
+                except Exception as e:
+                    logger.error(f"Failed to clear existing selections: {e}")
+                    return False
+                page.wait_for_timeout(300)
                 
                 logger.info("Opening ISO3 input area...")
                 img_lookup = iframe.locator('img#Img1, img[title="Find Country"]')
                 if img_lookup.count() > 0:
-                     img_lookup.first.click()
-                page.wait_for_timeout(500)
+                    img_lookup.first.click()
+                    page.wait_for_timeout(300)
+                else:
+                    logger.error("ISO3 input area not found.")
+                    return False
                 
                 logger.info(f"Entering ISO3: {country_code}")
                 iframe.locator('textarea#txtCntry').fill(country_code)
                 iframe.locator('input#btnCntryCode').click()
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(300)
                 
                 logger.info("Finalizing Country Selection...")
                 proceed_btn = iframe.locator('input#CountryList1_btnProcess')

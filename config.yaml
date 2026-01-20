@@ -1,15 +1,16 @@
 # WITS Automation Configuration
 credentials:
-  email: "documents.owais@gmail.com"
+  email: "zask25802@gmail.com"
   password: "Abuji@2580"
-  query_name: ["Auto2009", "Auto2010", "Auto2011", "Auto2012", "Auto2013"]
+  #query_name: ["Auto2010", "Auto2011", "Auto2012", "Auto2013"]
+  query_name: ["Auto2007", "Auto2008"]
 urls:
   login: "https://wits.worldbank.org/WITS/WITS/Restricted/Login.aspx"
   advanced_query: "https://wits.worldbank.org/WITS/WITS/Restricted/AdvancedQuery/TradeData.aspx" # This is a guess, I will verify it.
 
 automation:
   browser: "chromium"
-  headless: false
+  headless: true
 
 
 workflow:

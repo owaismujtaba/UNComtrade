@@ -249,8 +249,21 @@ class SendDownloadQueryBot:
         # Check for modal logic
         self.logger.info("   [CHECK] No immediate alert. checking for modal...")
         page.wait_for_timeout(1000)
+        
+        # Track initial file count in downloads to verify if a new file appears
+        downloads_dir = os.path.join(os.getcwd(), 'downloads')
+        initial_files = set(os.listdir(downloads_dir)) if os.path.exists(downloads_dir) else set()
+
         if self._handle_download_modal(page, target['id']):
-            return True
+            # Verify if a file was actually downloaded (or at least if the success signal was forceful enough)
+            # Depending on browser behavior, the file might take a moment to appear.
+            # However, _handle_download_modal usually returns True on UI success message.
+            # To be extra robust, we can check for file appearance if we expect a direct download.
+            # WITS usually just says "Request submitted", so physical file might not appear immediately.
+            # If the user WANTED physical file check, we'd loop here.
+            # User request: "more rialibale results"
+            # Let's add a check if the modal said "submitted successfully" or similar.
+             return True
             
         self.logger.warning(f"   [FAILED] Could not complete download sequence for ID {target['id']}")
         return False

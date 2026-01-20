@@ -30,7 +30,7 @@ class SendQueryBot:
     def save_undone_countries(self, query_name, undone_countries):
         """Saves each undone country as an individual JSON file in a folder."""
         try:
-            folder_name = 'undone_tasks'
+            folder_name = os.path.join('output', 'undone_tasks')
             if not os.path.exists(folder_name):
                 os.makedirs(folder_name)
                 self.logger.info(f"Created folder: {folder_name}")
@@ -105,6 +105,18 @@ class SendQueryBot:
         try:
             if self.process_field_steps(page, query_name, key):
                 self.log_country_progress(query_name, key, current_idx, total_count, time.time() - start_ts)
+                
+                # Success Marker: Write to output file
+                try:
+                    output_dir = os.path.join(os.getcwd(), 'output', 'done')
+                    os.makedirs(output_dir, exist_ok=True)
+                    output_file = os.path.join(output_dir, f"{query_name}")
+                    with open(output_file, 'a') as f:
+                        f.write(f"{key}\n")
+                    self.logger.info(f"Marked {key} as successfully finished in {output_file}")
+                except Exception as e:
+                    self.logger.error(f"Failed to write success marker for {key}: {e}")
+
                 return True
         except Exception as e:
             self.logger.error(f"Error processing {key}: {e}")
@@ -120,7 +132,7 @@ class SendQueryBot:
             creds = self.config['credentials']
             if not login(page, creds['email'], creds['password'], self.config['urls']['login'], self.logger):
                 self.logger.error("Login failed. Retrying...")
-                time.sleep(5)
+                time.sleep(1)
                 return undone_countries
 
             for key in list(undone_countries.keys()):
@@ -172,8 +184,8 @@ class SendQueryBot:
         self.processing_times = [] 
         index = 3
         while undone_countries:
-            if index%3 == 0:
-                time.sleep(3)
+            # if index%3 == 0:
+            #     time.sleep(3)
             index += 1
             undone_countries = self._run_iteration(query_name, undone_countries, iteration, total_count)
             

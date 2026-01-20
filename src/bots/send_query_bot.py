@@ -68,7 +68,7 @@ class SendQueryBot:
                     current_idx = total_countries_count - len(undone_countries) + 1
                     
                     self.logger.info(f"\n{'='*60}")
-                    self.logger.info(f"🚀 STARTING [{current_idx}/{total_countries_count}]: {item} ({key})")
+                    self.logger.info(f"[START] STARTING [{current_idx}/{total_countries_count}]: {item} ({key})")
                     self.logger.info(f"{'-'*60}")
                     
                     success = False
@@ -101,10 +101,10 @@ class SendQueryBot:
                         eta_seconds = avg_time * remaining_count
                         eta_formatted = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
 
-                        self.logger.info(f"✅ COMPLETED {key}")
-                        self.logger.info(f"   ⏱️  Duration : {country_duration:.2f}s")
-                        self.logger.info(f"   📊 Average  : {avg_time:.2f}s")
-                        self.logger.info(f"   ⏳ ETA      : {eta_formatted}")
+                        self.logger.info(f"[SUCCESS] COMPLETED {key}")
+                        self.logger.info(f"   [TIME] Duration : {country_duration:.2f}s")
+                        self.logger.info(f"   [TIME] Average  : {avg_time:.2f}s")
+                        self.logger.info(f"   [TIME] ETA      : {eta_formatted}")
                         self.logger.info(f"{'='*60}\n")
                         del undone_countries[key]
                         

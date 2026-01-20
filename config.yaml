@@ -1,8 +1,8 @@
 # WITS Automation Configuration
 credentials:
-  email: "documents.owais@gmail.com"
+  email: "owaismujtaba@ugr.es"
   password: "Abuji@2580"
-  query_name: "2008Auto"
+  query_name: "2007n"
 
 urls:
   login: "https://wits.worldbank.org/WITS/WITS/Restricted/Login.aspx"
@@ -14,8 +14,8 @@ automation:
 
 
 workflow:
-  execute_send_query: true # This will send the query to WITS
-  execute_send_download_query: false # This will send the download query to WITS
+  execute_send_query: false # This will send the query to WITS
+  execute_send_download_query: true # This will send the download query to WITS
   execute_download_query: false # This will download the query
 
 iso3_to_country : {

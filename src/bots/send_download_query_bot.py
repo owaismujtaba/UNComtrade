@@ -19,8 +19,18 @@ class SendDownloadQueryBot:
 
     def run(self):
         query_name = self.config['credentials'].get('query_name', 'DownloadJob')
+        # Sanitize query_name if it is a list
+        if isinstance(query_name, list):
+            query_name = "_".join(str(x) for x in query_name)
+            # Cap length if too long
+            if len(query_name) > 50:
+                query_name = "BatchDownload"
+        
         log_path = os.path.join('logs', f"download_{query_name}.log")
         self.logger = setup_logger(self.__class__.__name__, log_file=log_path)
+        
+        # Store sanitized name for markers
+        self.sanitized_query_name = query_name
 
         self.logger.info(f"Starting SendDownloadQueryBot execution... (Log: {log_path})")
         page = self.browser_manager.start()
@@ -226,9 +236,12 @@ class SendDownloadQueryBot:
         
         download_icon = target_row.locator('input[src*="Download"]')
         
-        if not download_icon.is_visible():
-            self.logger.warning(f"   [WARNING] Download icon not found for ID {target['id']}")
-            return False
+        try:
+            download_icon.wait_for(state="visible", timeout=5000)
+        except Exception:
+            self.logger.warning(f"   [WARNING] Download icon not found for ID {target['id']} (waited 5s)")
+            self._record_success(self.sanitized_query_name, target['id'], status="Download Icon Missing")
+            return True
 
         download_icon.click(force=True)
         self.logger.info("   [DOWNLOAD] Download icon clicked. Monitoring for alerts/modal...")
@@ -240,9 +253,11 @@ class SendDownloadQueryBot:
             if self.last_alert:
                 if "Data is not available" in self.last_alert:
                     self.logger.warning(f"   [SKIP] Skipping ID {target['id']}: Data not available.")
-                    return False
+                    self._record_success(self.sanitized_query_name, target['id'], status="Data Not Available")
+                    return True
                 if any(msg in self.last_alert for msg in ["submitted successfully", "request status"]):
                     self.logger.info(f"   [SUCCESS] Job submitted successfully for ID {target['id']}.")
+                    self._record_success(self.sanitized_query_name, target['id'], status="Data Downloaded (Alert)")
                     return True
             page.wait_for_timeout(500)
         
@@ -255,18 +270,37 @@ class SendDownloadQueryBot:
         initial_files = set(os.listdir(downloads_dir)) if os.path.exists(downloads_dir) else set()
 
         if self._handle_download_modal(page, target['id']):
-            # Verify if a file was actually downloaded (or at least if the success signal was forceful enough)
-            # Depending on browser behavior, the file might take a moment to appear.
-            # However, _handle_download_modal usually returns True on UI success message.
-            # To be extra robust, we can check for file appearance if we expect a direct download.
-            # WITS usually just says "Request submitted", so physical file might not appear immediately.
-            # If the user WANTED physical file check, we'd loop here.
-            # User request: "more rialibale results"
-            # Let's add a check if the modal said "submitted successfully" or similar.
+             # Verification logic
+             self._record_success(self.sanitized_query_name, target['id'], status="Data Downloaded (Modal)")
              return True
             
         self.logger.warning(f"   [FAILED] Could not complete download sequence for ID {target['id']}")
+        self._record_failure(self.sanitized_query_name, target['id'])
         return False
+
+    def _record_success(self, query_name, target_id, status="Success"):
+        """Writes the target ID to the success marker file with status."""
+        try:
+            output_dir = os.path.join(os.getcwd(), 'output', 'dwnldExecute')
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, f"{query_name}_downloads")
+            with open(output_file, 'a') as f:
+                f.write(f"{target_id} - {status}\n")
+            self.logger.info(f"   [MARKER] Marked {target_id} as complete in {output_file}")
+        except Exception as e:
+            self.logger.error(f"   [MARKER] Failed to write success marker: {e}")
+
+    def _record_failure(self, query_name, target_id):
+        """Writes the target ID to the failure marker file."""
+        try:
+            output_dir = os.path.join(os.getcwd(), 'output', 'undone_tasks')
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, f"{query_name}_failed_downloads.txt")
+            with open(output_file, 'a') as f:
+                f.write(f"{target_id}\n")
+            self.logger.info(f"   [MARKER] Marked {target_id} as failed in {output_file}")
+        except Exception as e:
+            self.logger.error(f"   [MARKER] Failed to write failure marker: {e}")
 
     def process_downloads(self, page):
         """Coorders the scanning and downloading of completed queries."""

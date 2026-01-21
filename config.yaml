@@ -1,9 +1,10 @@
 # WITS Automation Configuration
 credentials:
+  # email: "owaismujtaba@correo.ugr.es"
   email: "zask25802@gmail.com"
   password: "Abuji@2580"
   #query_name: ["Auto2010", "Auto2011", "Auto2012", "Auto2013"]
-  query_name: ["Auto2007", "Auto2008"]
+  query_name: ["Auto2007", "Auto2008", "Auto2009", "Auto2010", "Auto2011", "Auto2012", "Auto2013", "Auto2014", "Auto2015", "Auto2016", "Auto2017", "Auto2018", "Auto2019", "Auto2020", "Auto2021", "Auto2022", "Auto2023", "Auto2024", "Auto2025"]
 urls:
   login: "https://wits.worldbank.org/WITS/WITS/Restricted/Login.aspx"
   advanced_query: "https://wits.worldbank.org/WITS/WITS/Restricted/AdvancedQuery/TradeData.aspx" # This is a guess, I will verify it.
@@ -14,9 +15,11 @@ automation:
 
 
 workflow:
-  execute_send_query: true # This will send the query to WITS
-  execute_send_download_query: false # This will send the download query to WITS
-  execute_download_query: false # This will download the query
+  execute_send_query: false
+  execute_send_download_query: false
+  execute_manage_suspended_queries:  true 
+  execute_delete_queries: false
+  execute_reprocess_suspended: false
 
 
 iso3_to_country : {
